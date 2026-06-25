@@ -152,7 +152,7 @@ services:
 
   # Backend API
   backend:
-    image: chamikajaycey/worklenz-backend:${BACKEND_VERSION:-2.1.6}
+    image: ghcr.io/${DOCKER_USERNAME:-tw199501}/worklenz-backend:${BACKEND_VERSION:-2.1.6-zh-TW.1}
     build:
       context: ./worklenz-backend
       dockerfile: Dockerfile
@@ -240,7 +240,7 @@ services:
 
   # Frontend Application
   frontend:
-    image: chamikajaycey/worklenz-frontend:${FRONTEND_VERSION:-2.1.6}
+    image: ghcr.io/${DOCKER_USERNAME:-tw199501}/worklenz-frontend:${FRONTEND_VERSION:-2.1.6-zh-TW.1}
     build:
       context: ./worklenz-frontend
       dockerfile: Dockerfile

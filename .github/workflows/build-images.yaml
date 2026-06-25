@@ -4,8 +4,10 @@ on:
   push:
     branches:
       - 'main'
+      - 'release'
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,14 +16,21 @@ jobs:
       contents: read
       packages: write
     strategy:
+      fail-fast: false
       matrix:
         service:
           - name: frontend
             context: ./worklenz-frontend
-            container_name: worklenz_frontend
+            file: ./worklenz-frontend/Dockerfile
+            container_name: worklenz-frontend
           - name: backend
             context: ./worklenz-backend
-            container_name: worklenz_backend
+            file: ./worklenz-backend/Dockerfile
+            container_name: worklenz-backend
+          - name: postgres
+            context: .
+            file: ./docker/postgres.Dockerfile
+            container_name: worklenz-postgres
     steps:
       - name: Checkout the codebase
         uses: actions/checkout@v4
@@ -38,13 +47,17 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ matrix.service.container_name }}
+          tags: |
+            type=raw,value=2.1.6-zh-TW.1
+            type=ref,event=branch
           flavor: |
-            latest=true     
+            latest=true
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.file }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

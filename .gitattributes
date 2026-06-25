@@ -1,0 +1,8 @@
+# Force LF for shell scripts and Dockerfiles.
+# On Windows, CRLF line endings break:
+#   - shell script shebangs (#!/bin/bash\r -> "required file not found")
+#   - Dockerfile heredoc-generated scripts (e.g. frontend start.sh)
+# which makes the Docker Compose stack fail to start.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf

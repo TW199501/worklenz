@@ -1,0 +1,155 @@
+# Worklenz — DEPLOY-ONLY compose (pull images only)
+#
+# For deploy panels (e.g. Dockhand) that take only a compose file + .env and
+# have NO source code on disk. Everything is pulled — no `build:`, no source
+# bind mounts. The DB schema is baked into the postgres image.
+#
+# There is NO bundled nginx/certbot here: put your own reverse proxy in front
+# of the frontend (port 5000) and backend (port 3000).
+#
+# Required .env: DB_PASSWORD, SESSION_SECRET, COOKIE_SECRET, JWT_SECRET,
+#                VITE_API_URL, VITE_SOCKET_URL, FRONTEND_URL, SOCKET_IO_CORS
+
+services:
+  postgres:
+    image: ghcr.io/${DOCKER_USERNAME:-tw199501}/worklenz-postgres:${DB_VERSION:-2.1.6-zh-TW.1}
+    container_name: worklenz-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-worklenz_db}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=en_US.UTF-8 --lc-ctype=en_US.UTF-8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [worklenz]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-worklenz_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: worklenz-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-worklenz_redis_pass}
+    volumes:
+      - redis_data:/data
+    networks: [worklenz]
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a ${REDIS_PASSWORD:-worklenz_redis_pass} ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: worklenz-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    networks: [worklenz]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: worklenz-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      MINIO_BUCKET: ${AWS_BUCKET:-worklenz-bucket}
+    networks: [worklenz]
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set wl http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}; do sleep 2; done;
+      /usr/bin/mc mb wl/$${MINIO_BUCKET} --ignore-existing;
+      /usr/bin/mc anonymous set download wl/$${MINIO_BUCKET};
+      echo 'bucket ready'; exit 0;
+      "
+
+  backend:
+    image: ghcr.io/${DOCKER_USERNAME:-tw199501}/worklenz-backend:${BACKEND_VERSION:-2.1.6-zh-TW.1}
+    container_name: worklenz-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      COOKIE_SECRET: ${COOKIE_SECRET:?COOKIE_SECRET is required}
+      SESSION_NAME: ${SESSION_NAME:-worklenz.sid}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-worklenz_db}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_MAX_CLIENTS: ${DB_MAX_CLIENTS:-50}
+      USE_PG_NATIVE: ${USE_PG_NATIVE:-false}
+      SERVER_CORS: ${SERVER_CORS:-*}
+      SOCKET_IO_CORS: ${SOCKET_IO_CORS}
+      FRONTEND_URL: ${FRONTEND_URL}
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-s3}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-worklenz_redis_pass}
+      REDIS_DB: ${REDIS_DB:-0}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_BUCKET: ${AWS_BUCKET:-worklenz-bucket}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      S3_URL: ${S3_URL:-http://minio:9000}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ENABLE_EMAIL_CRONJOBS: ${ENABLE_EMAIL_CRONJOBS:-false}
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    networks: [worklenz]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/public/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  frontend:
+    image: ghcr.io/${DOCKER_USERNAME:-tw199501}/worklenz-frontend:${FRONTEND_VERSION:-2.1.6-zh-TW.1}
+    container_name: worklenz-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      VITE_API_URL: ${VITE_API_URL}
+      VITE_SOCKET_URL: ${VITE_SOCKET_URL}
+      VITE_APP_TITLE: ${VITE_APP_TITLE:-Worklenz}
+      VITE_APP_ENV: production
+      VITE_ENABLE_RECAPTCHA: ${VITE_ENABLE_RECAPTCHA:-false}
+      VITE_ENABLE_GOOGLE_LOGIN: ${VITE_ENABLE_GOOGLE_LOGIN:-false}
+      VITE_ENABLE_SURVEY_MODAL: ${VITE_ENABLE_SURVEY_MODAL:-false}
+    ports:
+      - "${FRONTEND_PORT:-5000}:5000"
+    networks: [worklenz]
+
+networks:
+  worklenz:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

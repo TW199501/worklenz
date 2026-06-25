@@ -21,6 +21,10 @@ COPY . ./
 # Set build-time environment variables to use runtime variables as fallback
 ENV VITE_API_URL=__VITE_API_URL__
 ENV VITE_SOCKET_URL=__VITE_SOCKET_URL__
+# Frontend localStorage key for the cached session. session-helper.ts reads it
+# via import.meta.env (build-time inline), so it must be set here; otherwise the
+# session is stored under the literal key "undefined".
+ENV VITE_WORKLENZ_SESSION_ID=worklenz-session-id
 
 # Build React application for production with Vite
 RUN npm run build

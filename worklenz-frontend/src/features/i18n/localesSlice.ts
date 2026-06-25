@@ -8,6 +8,7 @@ export enum Language {
   ALB = 'alb',
   DE = 'de',
   ZH_CN = 'zh_cn',
+  ZH_TW = 'zh-TW',
   KO = 'ko',
 }
 

@@ -84,3 +84,7 @@ backups/
 *.bak
 *.tmp
 nginx/conf.d/*.bak
+
+# tooling artifacts (not part of the app)
+/skills.json
+/docs/superpowers/
